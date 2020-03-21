@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-
+# Source this file in ~/bash_profile
 
 # TODO: create a compiled version. Interact with the sqlite lib
 
@@ -21,6 +21,7 @@
 #
 #
 # TODO: come up with a namespace
+# TODO: Make this repo a git subtree for my dotfiles
 
 export SHELLANALYTICSDATABASE='/Users/adamgaia/repo/shellAnalytics/shellAnalytics.db'
 
@@ -109,18 +110,10 @@ function printShellAnalytics()
     echo ''
 }
 
-# TODO: multiline things like switch case and if statements are lost. Fix this
+# TODO: multiline commands like switch case and if statements are lost. Fix this
 #   • maybe by checking for multiline command and using `fc -ln` to grab the rest?
 #   • it seems that shell keywords cause problems
+
+# Using a debug trap is the magic that allows us to save $BASH_COMMAND before it is updated
 trap 'shellAnalytics_driver ${BASH_COMMAND}' DEBUG
-
-
-
-
-
-
-
-
-
-
 
