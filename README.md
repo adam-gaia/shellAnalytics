@@ -4,9 +4,12 @@ Tools like zsh and autojump ( https://github.com/wting/autojump ) already exist,
 
 # Installation
 Clone this repo and source the shellAnalytics.sh script
-``` git clone https://github.com/adam-gaia/shellAnalytics.git
+```
+git clone https://github.com/adam-gaia/shellAnalytics.git
 source shellAnalytics/shellAnalytics.sh
 ```
 
 # Usage
-Run commands as you usually would. To display your stats, run ``` printShellAnalytics ```
+Run commands as you usually would. To display your stats, run ```
+printShellAnalytics
+```
