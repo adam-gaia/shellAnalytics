@@ -22,6 +22,7 @@
 #
 # TODO: come up with a namespace
 # TODO: Make this repo a git subtree for my dotfiles
+# TODO: stop the possibility of injection
 
 export SHELLANALYTICSDATABASE='/Users/adamgaia/repo/shellAnalytics/shellAnalytics.db'
 
@@ -38,6 +39,23 @@ function shellAnalytics_initDataBase()
     echo 'Shell analytics database created'
 }
 
+function shellAnalytics_tallyCommandArgs()
+{
+    fullCommand=($@)
+    cmd="${fullCommand[0]}"
+    args="$*" # Save the entire command instead of just the args
+
+    tableName="${cmd}_argTally"
+
+    # Check if we have used this combo of args before
+    check="$(sqlite3 "${SHELLANALYTICSDATABASE}" "SELECT EXISTS(SELECT 1 FROM ${tableName} WHERE Arguments='${args}')")"
+    if [[ "${check}" -eq '0' ]]; then
+        sqlite3 "${SHELLANALYTICSDATABASE}" "INSERT INTO ${tableName} VALUES('${args}', 1)"
+    else
+        sqlite3 "${SHELLANALYTICSDATABASE}" "UPDATE ${tableName} SET Tally = Tally + 1 WHERE Arguments='${args}'"
+    fi
+}
+
 function shellAnalytics_tallyCommand()
 {
     cmd="${*}"
@@ -52,9 +70,27 @@ function shellAnalytics_tallyCommand()
     # Check if we have ran this command before
     check="$(sqlite3 "${SHELLANALYTICSDATABASE}" "SELECT EXISTS(SELECT 1 FROM commandFrequency WHERE Command='${cmd}')")"
     if [[ ${check} -eq '0' ]]; then
+
         sqlite3 "${SHELLANALYTICSDATABASE}" "INSERT INTO commandFrequency VALUES('${cmd}', 1, '${cmdIsReal}')"
+
+        # Create a table to tally args used with this command
+        tableName="${cmd}_argTally"
+        sqlite3 "${SHELLANALYTICSDATABASE}" "CREATE TABLE ${tableName}(Arguments TEXT, Tally INTEGER)"
+
     else
         sqlite3 "${SHELLANALYTICSDATABASE}" "UPDATE commandFrequency SET Tally = Tally + 1 WHERE Command='${cmd}'"
+    fi
+}
+
+function shellAnalytics_verifyCommandIsInDatabase()
+{
+    cmd="$1"
+    check="$(sqlite3 "${SHELLANALYTICSDATABASE}" "SELECT EXISTS(SELECT 1 FROM commandFrequency WHERE Command='${cmd}')")"
+
+    if [[ "$check" -eq '0' ]]; then
+        return 1
+    else
+        return 0
     fi
 }
 
@@ -71,15 +107,19 @@ function shellAnalytics_driver()
     fi
 
     # Separate command from arguments
-    lastCmd=($@)
-    cmd=${lastCmd[0]}
-    args=${lastCmd[@]:1}
+    cmdWithArgs=($@)
+    cmd=${cmdWithArgs[0]}
+    args=${cmdWithArgs[@]:1}
 
     # TODO: find a better way to handle commands like
     #    ind, watch, xargs
+    #    where the 'real command' is in the arguments
 
     # Save command to the database
     shellAnalytics_tallyCommand "${cmd}"
+
+    # Tally these specific args used with this command
+    shellAnalytics_tallyCommandArgs ${@}
 
     # Preformed extra options depending on which command was ran
     case "${cmd}" in
@@ -93,21 +133,102 @@ function shellAnalytics_driver()
             ;;
     esac
 
-    # Update tally of times a command has been ran
+    # Update tally of times any command has been ran
     sqlite3 "${SHELLANALYTICSDATABASE}" "UPDATE metaStats SET Value = Value + 1 WHERE VarName='globalTally'"
+}
+
+function shellAnalytics_printSingleCommandDetailedInfo()
+{
+    printBold "${cmd} "
+    sqlite3 "${SHELLANALYTICSDATABASE}" "SELECT Tally FROM commandFrequency WHERE Command='${cmd}'"
+    tableName="${cmd}_argTally"
+    sqlite3 "${SHELLANALYTICSDATABASE}" "SELECT * FROM ${tableName}"
+    echo ''
+}
+
+function shellAnalytics_removeCommand()
+{
+    # Remove input commands from the database
+    if [[ $# -eq '0' ]]; then
+        echo "Usage:"
+        echo "shellAnalytics_removeCommand <commands to remove>"
+        return 1
+    fi
+
+    for cmdToRm in $@; do
+
+        if ! shellAnalytics_verifyCommandIsInDatabase; then
+            echo "Error, '${cmdToRm}' is not in the datbase"
+            # Skip this cmd
+            continue
+        fi
+
+        # Ask user for conformation to delete
+        echo "Remove '${cmdToRm}' from record? [y|n]"
+        read conformation
+        if [[ "${conformation}" != 'y' ]]; then
+            # Skip this cmd
+            continue
+        fi
+
+        # Subtract this command's tally from the global tally
+        cmdTally="$(sqlite3 "${SHELLANALYTICSDATABASE}" "SELECT Tally FROM commandFrequency WHERE Command='${cmdToRm}'")"
+        sqlite3 "${SHELLANALYTICSDATABASE}" "UPDATE metaStats SET Value = Value - ${cmdTally} WHERE VarName='globalTally'"
+
+        # Remove entry from main table
+        sqlite3 "${SHELLANALYTICSDATABASE}" "DELETE FROM commandFrequency WHERE Command='${cmdToRm}'"
+
+        # Remove secondary table with all args
+        tableName="${cmdToRm}_argTally"
+        sqlite3 "${SHELLANALYTICSDATABASE}" "DROP TABLE ${tableName}"
+    done
 }
 
 function printShellAnalytics()
 {
-    printBold '\nCommands:\n'
-    sqlite3 "${SHELLANALYTICSDATABASE}" 'SELECT * FROM commandFrequency WHERE legitCommand=1' |sort |column -t -s'|' # This requires the default sqlite separator '|'
-    echo ''
-    printBold 'Typos:\n'
-    sqlite3 "${SHELLANALYTICSDATABASE}" 'SELECT * FROM commandFrequency WHERE legitCommand=0' |sort |column -t -s'|'
-    echo ''
-    printBold 'Stats:\n'
-    sqlite3 "${SHELLANALYTICSDATABASE}" "SELECT * FROM metaStats" |sort |column -t -s'|'
-    echo ''
+    if [[ "$1" == '--help' ]]; then
+        echo "TODO: add a help message"
+
+    elif [[ $# -eq 0 ]]; then
+        printBold '\nCommands:\n'
+        # TODO: clean up the formatting
+        sqlite3 "${SHELLANALYTICSDATABASE}" 'SELECT * FROM commandFrequency WHERE legitCommand=1' |sort |column -t -s'|'  | awk '{$NF=""}1' |column -t # This requires the default sqlite separator '|'
+        echo ''
+        printBold 'Typos:\n'
+        sqlite3 "${SHELLANALYTICSDATABASE}" 'SELECT * FROM commandFrequency WHERE legitCommand=0' |sort |column -t -s'|'  | awk '{$NF=""}1' |column -t
+        echo ''
+        printBold 'Stats:\n'
+        sqlite3 "${SHELLANALYTICSDATABASE}" "SELECT * FROM metaStats" |sort |column -t -s'|'
+        echo ''
+
+    elif [[ "$1" == '--all' ]]; then
+        allCommands=("$(sqlite3 "${SHELLANALYTICSDATABASE}" 'SELECT Command FROM commandFrequency')")
+        for cmd in ${allCommands}; do
+            shellAnalytics_printSingleCommandDetailedInfo $cmd
+        done
+
+    elif [[ "$1" == '--real' ]]; then
+        allCommands=("$(sqlite3 "${SHELLANALYTICSDATABASE}" 'SELECT Command FROM commandFrequency WHERE legitCommand=1')")
+        for cmd in ${allCommands}; do
+            shellAnalytics_printSingleCommandDetailedInfo $cmd
+        done
+
+    elif [[ "$1" == '--typos' ]]; then
+        allCommands=("$(sqlite3 "${SHELLANALYTICSDATABASE}" 'SELECT Command FROM commandFrequency WHERE legitCommand=0')")
+        for cmd in ${allCommands}; do
+            shellAnalytics_printSingleCommandDetailedInfo $cmd
+        done
+
+    else
+        for cmd in $@; do
+            if ! shellAnalytics_verifyCommandIsInDatabase; then
+            echo "Error, user entry '${cmd}' is not in the datbase"
+            # Skip this cmd
+            continue
+        fi
+            shellAnalytics_printSingleCommandDetailedInfo $cmd
+        done
+    fi   
 }
 
 # TODO: multiline commands like switch case and if statements are lost. Fix this
