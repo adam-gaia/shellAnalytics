@@ -22,7 +22,9 @@
 #
 # TODO: come up with a namespace
 # TODO: Make this repo a git subtree for my dotfiles
-# TODO: stop the possibility of injection
+# TODO: stop the possibility of injection - need to escape special chars
+# TODO: var deceleration is not recognized as a valid command. Should this be fixed?
+#   Doing so could provide interesting info on what var names I use the most
 
 export SHELLANALYTICSDATABASE='/Users/adamgaia/repo/shellAnalytics/shellAnalytics.db'
 
