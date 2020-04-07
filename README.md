@@ -10,6 +10,7 @@ source shellAnalytics/shellAnalytics.sh
 ```
 
 # Usage
-Run commands as you usually would. To display your stats, run ```
+Run commands as you usually would. To display your stats, run
+```
 printShellAnalytics
 ```
